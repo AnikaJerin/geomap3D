@@ -62,6 +62,29 @@
                 }
             });
         }
+        function fitCameraToScene(camera, controls, object) {
+            const box = new THREE.Box3().setFromObject(object);
+            if (box.isEmpty()) return;
+    
+            const size = box.getSize(new THREE.Vector3());
+            const center = box.getCenter(new THREE.Vector3());
+    
+            const maxDim = Math.max(size.x, size.y, size.z);
+            const fov = camera.fov * (Math.PI / 180);
+            let cameraZ = Math.abs(maxDim / Math.sin(fov / 2));
+    
+            camera.position.set(center.x, center.y + cameraZ * 0.3, cameraZ * 1.2);
+            camera.lookAt(center);
+    
+            camera.near = cameraZ / 100;
+            camera.far = cameraZ * 100;
+            camera.updateProjectionMatrix();
+    
+            if (controls) {
+                controls.target.copy(center);
+                controls.update();
+            }
+        }
 
         function addGroundGrid(scene, size = 2000, divisions = 40) {
             const grid = new THREE.GridHelper(
@@ -90,8 +113,10 @@
         };
         buildScene(timeSteps[0]);
         addGroundGrid(scene);
+        fitCameraToScene(camera, controls, group);
         function animate() { requestAnimationFrame(animate); renderer.render(scene, camera); }
         animate();
-    </script>
+    </script>        
+    
 </body>
 </html>

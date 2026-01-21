@@ -4,17 +4,20 @@ import webbrowser
 
 class Map:
     def __init__(self, time_steps=None):
-        self.shapes = []
-        self.surfaces = []
+        self.shapes = [] #** Stores shapes *
+        self.surfaces = [] #** Stores surfaces *
 
         self.bounds = {
             'min_lat': 90,
             'max_lat': -90,
             'min_lon': 180,
             'max_lon': -180
-        }
+        } #**Auto-centering, auto-scaling, zoom calculation* -_-
 
-        self.time_steps = list(time_steps) if time_steps else []
+        self.time_steps = list(time_steps) if time_steps else [] #Initial timeline values.
+        # **** if m = GeoMap3D(time_steps=None) then self.time_steps becomes []
+        # **** if tuple, m = GeoMap3D(time_steps=("9am", "10am")) then self.time_steps becomes ["9am", "10am"]
+        #**** if time_steps=["00:00", "01:00", "02:00"] then list(["00:00", "01:00", "02:00"])
 
     def _update_bounds(self, points):
         for lon, lat in points:
@@ -23,7 +26,7 @@ class Map:
             self.bounds['min_lon'] = min(self.bounds['min_lon'], lon)
             self.bounds['max_lon'] = max(self.bounds['max_lon'], lon)
 
-    # 🔹 PUBLIC API (what users call)
+    # PUBLIC API (what users call)
     def add_bar(self, polygon, height=10, color="#ffffff", time=0):
         self._update_bounds(polygon)
 
@@ -50,7 +53,7 @@ class Map:
             "time": time
         })
 
-    # 🔹 INTERNAL
+    # INTERNAL
     def _project(self):
         center_lat = (self.bounds['min_lat'] + self.bounds['max_lat']) / 2
         center_lon = (self.bounds['min_lon'] + self.bounds['max_lon']) / 2
