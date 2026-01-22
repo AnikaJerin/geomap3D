@@ -27,7 +27,7 @@ class Map:
             self.bounds['max_lon'] = max(self.bounds['max_lon'], lon)
 
     # PUBLIC API (what users call)
-    def add_bar(self, polygon, height=10, color="#ffffff", time=0):
+    def add_bar(self, polygon, height=10, color="#ffffff", time=0,info=None):
         self._update_bounds(polygon)
 
         if time not in self.time_steps:
@@ -37,7 +37,8 @@ class Map:
             "raw_coords": polygon,
             "height": height,
             "color": color,
-            "time": time
+            "time": time,
+            "info": info or {}
         })
 
     def add_surface(self, points, color="#00ff88", opacity=0.6, time=0):

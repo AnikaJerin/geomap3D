@@ -10,6 +10,19 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 </head>
+<div id="tooltip" style="
+    position: absolute;
+    padding: 8px 12px;
+    background: rgba(0,0,0,0.85);
+    color: #00ff88;
+    font-family: monospace;
+    font-size: 12px;
+    border: 1px solid #00ff88;
+    pointer-events: none;
+    display: none;
+    z-index: 20;
+"></div>
+
 <body>
     <div id="ui-layer">
         <strong>TIMELINE CONTROL</strong><br>
@@ -29,7 +42,14 @@
         scene.add(new THREE.AmbientLight(0xffffff, 0.9));
         const group = new THREE.Group();
         scene.add(group);
-        
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        const tooltip = document.getElementById("tooltip");
+
+        window.addEventListener("mousemove", (event) => {
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+        });
 
         function buildScene(currentTime) {
             group.clear();
@@ -57,6 +77,11 @@
                     const shape = new THREE.Shape(s.coords.map(c => new THREE.Vector2(c[0], c[1])));
                     const geo = new THREE.ExtrudeGeometry(shape, { depth: s.height, bevelEnabled: false });
                     const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: s.color }));
+                    mesh.userData = {
+                        height: s.height,
+                        info: s.info,
+                        time: s.time
+                    };
                     mesh.rotation.x = -Math.PI / 2;
                     group.add(mesh);
                 }
@@ -114,7 +139,38 @@
         buildScene(timeSteps[0]);
         addGroundGrid(scene);
         fitCameraToScene(camera, controls, group);
-        function animate() { requestAnimationFrame(animate); renderer.render(scene, camera); }
+        function animate() {
+            requestAnimationFrame(animate);
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(group.children);
+
+            if (intersects.length > 0) {
+                const obj = intersects[0].object;
+                const data = obj.userData;
+
+                if (data && data.info) {
+                    tooltip.style.display = "block";
+                    tooltip.style.left = mouse.x * window.innerWidth / 2 + window.innerWidth / 2 + "px";
+                    tooltip.style.top = -mouse.y * window.innerHeight / 2 + window.innerHeight / 2 + "px";
+
+                    tooltip.innerHTML = `
+                        <strong>${data.info.city || "Bar"}</strong><br>
+                        Height: ${data.height}<br>
+                        ${Object.entries(data.info)
+                            .filter(([k]) => k !== "city")
+                            .map(([k,v]) => `${k}: ${v}`)
+                            .join("<br>")}
+                    `;
+                }
+            } else {
+                tooltip.style.display = "none";
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        // function animate() { requestAnimationFrame(animate); renderer.render(scene, camera); }
         animate();
     </script>        
     
