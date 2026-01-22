@@ -22,12 +22,30 @@
     display: none;
     z-index: 20;
 "></div>
+<!-- STORY PANEL -->
+<div id="story-panel" style="
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    width: 320px;
+    background: rgba(0,0,0,0.9);
+    border: 1px solid #00ff88;
+    padding: 15px;
+    display: none;
+    z-index: 15;
+">
+</div>
 
 <body>
     <div id="ui-layer">
         <strong>TIMELINE CONTROL</strong><br>
         HOUR: <span id="time-val">0</span>
         <input type="range" min="0" value="0" step="1" id="timeSlider" class="slider">
+        <hr style="border-color:#00ff88; margin-top:12px">
+
+    <strong>INTERACTION MODE</strong><br>
+    <label><input type="radio" name="mode" value="hover" checked> Hover</label><br>
+    <label><input type="radio" name="mode" value="click"> Click / Story</label>
     </div>
     <script>
         const data = {{ MAP_DATA }};
@@ -45,12 +63,27 @@
         const raycaster = new THREE.Raycaster();
         const mouse = new THREE.Vector2();
         const tooltip = document.getElementById("tooltip");
+        let interactionMode = "hover";
+        let selectedObject = null;
 
         window.addEventListener("mousemove", (event) => {
             mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
             mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
         });
+        document.querySelectorAll('input[name="mode"]').forEach(r => {
+            r.addEventListener("change", () => {
+                interactionMode = r.value;
+                tooltip.style.display = "none";
+                document.getElementById("story-panel").style.display = "none";
 
+                group.children.forEach(o => {
+                    if (o.material) {
+                        o.material.transparent = false;
+                        o.material.opacity = 1;
+                    }
+                });
+            });
+        });
         function buildScene(currentTime) {
             group.clear();
             // Surfaces (The Grid)
@@ -87,6 +120,62 @@
                 }
             });
         }
+        /* ================== STORY MODE ================== */
+
+        function focusOnObject(target) {
+            selectedObject = target;
+
+            group.children.forEach(obj => {
+                if (!obj.material) return;
+
+                if (obj === target) {
+                    obj.material.opacity = 1;
+                    obj.material.transparent = false;
+                } else {
+                    obj.material.transparent = true;
+                    obj.material.opacity = 0.08;
+                }
+            });
+
+            showStory(target.userData);
+            moveCameraTo(target);
+        }
+
+        function showStory(data) {
+            const panel = document.getElementById("story-panel");
+            panel.style.display = "block";
+
+            panel.innerHTML = `
+                <h3 style="color:#00ff88">${data.info?.city || "Selected Bar"}</h3>
+                <p><strong>Height:</strong> ${data.height}</p>
+                ${data.info
+                    ? Object.entries(data.info)
+                        .map(([k,v]) => `<p><strong>${k}</strong>: ${v}</p>`)
+                        .join("")
+                    : ""}
+            `;
+        }
+        function moveCameraTo(obj) {
+            const box = new THREE.Box3().setFromObject(obj);
+            const center = box.getCenter(new THREE.Vector3());
+
+            camera.position.copy(center.clone().add(new THREE.Vector3(200, 300, 200)));
+            controls.target.copy(center);
+            controls.update();
+        }
+
+        /* ================== CLICK ================== */
+
+        window.addEventListener("click", () => {
+            if (interactionMode !== "click") return;
+
+            raycaster.setFromCamera(mouse, camera);
+            const hits = raycaster.intersectObjects(group.children);
+
+            if (hits.length) {
+                focusOnObject(hits[0].object);
+            }
+        });
         function fitCameraToScene(camera, controls, object) {
             const box = new THREE.Box3().setFromObject(object);
             if (box.isEmpty()) return;
@@ -145,19 +234,18 @@
             raycaster.setFromCamera(mouse, camera);
             const intersects = raycaster.intersectObjects(group.children);
 
-            if (intersects.length > 0) {
-                const obj = intersects[0].object;
-                const data = obj.userData;
+            if (intersects.length && interactionMode === "hover") {
+                const d = intersects[0].object.userData;
 
-                if (data && data.info) {
+                if (d && d.info) {
                     tooltip.style.display = "block";
-                    tooltip.style.left = mouse.x * window.innerWidth / 2 + window.innerWidth / 2 + "px";
-                    tooltip.style.top = -mouse.y * window.innerHeight / 2 + window.innerHeight / 2 + "px";
+                    tooltip.style.left = (mouse.x * window.innerWidth / 2 + window.innerWidth / 2) + "px";
+                    tooltip.style.top = (-mouse.y * window.innerHeight / 2 + window.innerHeight / 2) + "px";
 
                     tooltip.innerHTML = `
-                        <strong>${data.info.city || "Bar"}</strong><br>
-                        Height: ${data.height}<br>
-                        ${Object.entries(data.info)
+                        <strong>${d.info.city || "Bar"}</strong><br>
+                        Height: ${d.height}<br>
+                        ${Object.entries(d.info)
                             .filter(([k]) => k !== "city")
                             .map(([k,v]) => `${k}: ${v}`)
                             .join("<br>")}
@@ -169,7 +257,6 @@
 
             renderer.render(scene, camera);
         }
-
         // function animate() { requestAnimationFrame(animate); renderer.render(scene, camera); }
         animate();
     </script>        

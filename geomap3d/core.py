@@ -3,9 +3,10 @@ import os
 import webbrowser
 
 class Map:
-    def __init__(self, time_steps=None):
+    def __init__(self, time_steps=None,interaction="click"):
         self.shapes = [] #** Stores shapes *
         self.surfaces = [] #** Stores surfaces *
+        self.interaction = interaction
 
         self.bounds = {
             'min_lat': 90,
@@ -88,13 +89,16 @@ class Map:
         with open(template_path, 'r', encoding="utf-8") as f:
             html = f.read()
 
-        steps = sorted(self.time_steps)
+        # steps = sorted(self.time_steps)
+        steps = sorted(set(self.time_steps))
+
 
         config = {
             "shapes": self.shapes,
             "surfaces": self.surfaces,
             "timeSteps": steps,
-            "maxTimeIndex": len(steps) - 1
+            "maxTimeIndex": len(steps) - 1,
+            "interaction": self.interaction,
         }
 
         html = html.replace("{{ MAP_DATA }}", json.dumps(config))
