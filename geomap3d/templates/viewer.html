@@ -58,6 +58,24 @@
         const controls = new THREE.OrbitControls(camera, renderer.domElement);
         camera.position.set(1200, 1200, 1200);
         scene.add(new THREE.AmbientLight(0xffffff, 0.9));
+        const defaultCameraState = {
+            position: camera.position.clone(),
+            target: controls.target.clone()
+        };
+        // ================= CAMERA DRAG TRACKING =================
+        let isDragging = false;
+
+        controls.addEventListener("start", () => {
+            isDragging = true;
+        });
+
+        controls.addEventListener("end", () => {
+            isDragging = false;
+
+            // User finished dragging → accept this as new base camera
+            defaultCameraState.position.copy(camera.position);
+            defaultCameraState.target.copy(controls.target);
+        });
         const group = new THREE.Group();
         scene.add(group);
         const raycaster = new THREE.Raycaster();
@@ -65,6 +83,13 @@
         const tooltip = document.getElementById("tooltip");
         let interactionMode = "hover";
         let selectedObject = null;
+
+        let focusedObject = null;
+        let isAnimatingCamera = false;
+        let animationProgress = 0;
+        let cameraFrom = {};
+        let cameraTo = {};
+        // let isDragging = false;    
 
         window.addEventListener("mousemove", (event) => {
             mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
@@ -138,7 +163,7 @@
             });
 
             showStory(target.userData);
-            moveCameraTo(target);
+            // moveCameraTo(target);
         }
 
         function showStory(data) {
@@ -163,19 +188,94 @@
             controls.target.copy(center);
             controls.update();
         }
+        function animateCameraTo(targetPos, lookAt, duration = 60) {
+            isAnimatingCamera = true;
+            animationProgress = 0;
+
+            cameraFrom = {
+                position: camera.position.clone(),
+                target: controls.target.clone()
+            };
+
+            cameraTo = {
+                position: targetPos.clone(),
+                target: lookAt.clone()
+            };
+
+            camera.userData.animDuration = duration;
+        }
+        function resetCamera() {
+            animateCameraTo(
+                defaultCameraState.position,
+                defaultCameraState.target
+            );
+
+            focusedObject = null;
+            selectedObject = null;
+
+            document.getElementById("story-panel").style.display = "none";
+
+            // Restore all bars
+            group.children.forEach(obj => {
+                if (obj.material) {
+                    obj.material.transparent = false;
+                    obj.material.opacity = 1;
+                }
+            });
+        }
 
         /* ================== CLICK ================== */
-
         window.addEventListener("click", () => {
             if (interactionMode !== "click") return;
-
+            if (isDragging) return;
             raycaster.setFromCamera(mouse, camera);
-            const hits = raycaster.intersectObjects(group.children);
+            const intersects = raycaster.intersectObjects(group.children);
 
-            if (hits.length) {
-                focusOnObject(hits[0].object);
+            // CLICK ON BAR
+            if (intersects.length > 0) {
+                const obj = intersects[0].object;
+                focusedObject = obj;
+                showStory(obj.userData);
+
+                const box = new THREE.Box3().setFromObject(obj);
+                const center = box.getCenter(new THREE.Vector3());
+
+                const size = box.getSize(new THREE.Vector3());
+                const offset = Math.max(size.x, size.y, size.z) * 4;
+
+                const targetCameraPos = center.clone().add(
+                    new THREE.Vector3(offset, offset * 0.8, offset)
+                );
+
+                // animateCameraTo(targetCameraPos, center);
+                animateCameraTo(
+                    center.clone().add(new THREE.Vector3(offset, offset * 0.8, offset)),
+                    center
+                );
+
+                // Fade others
+                group.children.forEach(o => {
+                    if (o !== obj && o.material) {
+                        o.material.transparent = true;
+                        o.material.opacity = 0.15;
+                    }
+                });
+
+            } else {
+                // CLICK EMPTY SPACE
+                resetCamera();
             }
         });
+        // window.addEventListener("click", () => {
+        //     if (interactionMode !== "click") return;
+
+        //     raycaster.setFromCamera(mouse, camera);
+        //     const hits = raycaster.intersectObjects(group.children);
+
+        //     if (hits.length) {
+        //         focusOnObject(hits[0].object);
+        //     }
+        // });
         function fitCameraToScene(camera, controls, object) {
             const box = new THREE.Box3().setFromObject(object);
             if (box.isEmpty()) return;
@@ -254,9 +354,45 @@
             } else {
                 tooltip.style.display = "none";
             }
+            if (isAnimatingCamera) {
+                animationProgress++;
+                const t = Math.min(
+                    animationProgress / camera.userData.animDuration,
+                    1
+                );
 
+                camera.position.lerpVectors(
+                    cameraFrom.position,
+                    cameraTo.position,
+                    t
+                );
+
+                controls.target.lerpVectors(
+                    cameraFrom.target,
+                    cameraTo.target,
+                    t
+                );
+
+                controls.update();
+
+                if (t === 1) {
+                    isAnimatingCamera = false;
+                    defaultCameraState.position.copy(camera.position);
+                    defaultCameraState.target.copy(controls.target);
+                }
+            }
             renderer.render(scene, camera);
         }
+
+        function restoreAllBars() {
+            group.children.forEach(o => {
+                if (o.material) {
+                    o.material.transparent = false;
+                    o.material.opacity = 1;
+                }
+            });
+        }
+
         // function animate() { requestAnimationFrame(animate); renderer.render(scene, camera); }
         animate();
     </script>        
