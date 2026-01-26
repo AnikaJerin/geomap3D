@@ -241,6 +241,7 @@ slider.oninput = ()=>{
 };
 
 showTime(timeSteps[0]);
+fitCamera();
 
 /* ===================== CAMERA FIX ===================== */
 function fitCamera(){
@@ -254,12 +255,13 @@ function fitCamera(){
     const fov = camera.fov * Math.PI/180;
     const dist = maxDim / Math.sin(fov/2);
 
-    camera.position.copy(center.clone().add(new THREE.Vector3(dist, dist*0.6, dist)));
+    // camera.position.copy(center.clone().add(new THREE.Vector3(dist, dist*0.6, dist)));
+    camera.position.copy(center.clone().add(new THREE.Vector3(dist, dist*0.6, dist).multiplyScalar(1.2)));
     controls.target.copy(center);
     controls.update();
 }
 
-fitCamera();
+
 
 /* ===================== PICKING ===================== */
 window.addEventListener("click", () => {
