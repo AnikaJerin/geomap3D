@@ -262,7 +262,7 @@ function fitCamera(){
     let dist = maxDim / (2 * Math.atan(Math.PI * camera.fov / 360)); 
     
     // Change the multiplier from 1.2 to 2.0 or 2.5 for a wider starting view
-    const zoomOutFactor = 2.2; 
+    const zoomOutFactor = 3.2; 
     
     camera.position.copy(center.clone().add(new THREE.Vector3(dist, dist * 0.8, dist).multiplyScalar(zoomOutFactor)));
     
