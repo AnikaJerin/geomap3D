@@ -88,6 +88,8 @@ let pulsePhase = 0;
 /* ===================== CONTROLS ===================== */
 
 controls.addEventListener("end",()=>isDragging=false);
+controls.minDistance = 500;
+controls.maxDistance = 5000;
 
 window.addEventListener("mousemove", e=>{
     mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
@@ -244,6 +246,7 @@ showTime(timeSteps[0]);
 fitCamera();
 
 /* ===================== CAMERA FIX ===================== */
+/* ===================== CAMERA FIX ===================== */
 function fitCamera(){
     const box = new THREE.Box3().setFromObject(group);
     if(box.isEmpty()) return;
@@ -251,12 +254,18 @@ function fitCamera(){
     const size = box.getSize(new THREE.Vector3());
     const center = box.getCenter(new THREE.Vector3());
 
-    const maxDim = Math.max(size.x,size.y,size.z);
-    const fov = camera.fov * Math.PI/180;
-    const dist = maxDim / Math.sin(fov/2);
-
-    // camera.position.copy(center.clone().add(new THREE.Vector3(dist, dist*0.6, dist)));
-    camera.position.copy(center.clone().add(new THREE.Vector3(dist, dist*0.6, dist).multiplyScalar(1.2)));
+    const maxDim = Math.max(size.x, size.y, size.z);
+    const fov = camera.fov * (Math.PI / 180);
+    
+    // Increased the distance calculation to ensure 
+    // the geometry fits comfortably within the view frustum
+    let dist = maxDim / (2 * Math.atan(Math.PI * camera.fov / 360)); 
+    
+    // Change the multiplier from 1.2 to 2.0 or 2.5 for a wider starting view
+    const zoomOutFactor = 2.2; 
+    
+    camera.position.copy(center.clone().add(new THREE.Vector3(dist, dist * 0.8, dist).multiplyScalar(zoomOutFactor)));
+    
     controls.target.copy(center);
     controls.update();
 }
