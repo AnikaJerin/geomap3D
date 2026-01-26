@@ -1,7 +1,6 @@
 import json
 import os
 import webbrowser
-import re
 
 class Map:
     def __init__(self, time_steps=None, interaction="click"):
@@ -12,10 +11,7 @@ class Map:
         self.time_steps = list(time_steps) if time_steps else []
 
     def _validate_color(self, color):
-        """Ensures color is a valid string for Three.js."""
         c = str(color).strip().lower()
-        # If it's a hex like #ffffff, keep it. If it's a name like 'red', keep it.
-        # If it's a name with a dash like 'dark-blue', Three.js fails; remove the dash.
         return c.replace("-", "")
 
     def _update_bounds(self, points):
@@ -47,16 +43,27 @@ class Map:
         })
 
     def _project(self):
+        """Optimized: Converts raw coordinates to center positions and scales."""
         center_lat = (self.bounds['min_lat'] + self.bounds['max_lat']) / 2
         center_lon = (self.bounds['min_lon'] + self.bounds['max_lon']) / 2
         span = max(self.bounds['max_lat'] - self.bounds['min_lat'], 
                    self.bounds['max_lon'] - self.bounds['min_lon'], 0.00001)
         zoom = 1000 / span
 
-        for s in self.shapes:
-            s['coords'] = [[(lon - center_lon) * zoom, (lat - center_lat) * zoom] for lon, lat in s['raw_coords']]
         for surf in self.surfaces:
             surf['projected'] = [[(lon - center_lon) * zoom, (lat - center_lat) * zoom, z * 2] for lon, lat, z in surf['points']]
+
+        for s in self.shapes:
+            lons = [p[0] for p in s['raw_coords']]
+            lats = [p[1] for p in s['raw_coords']]
+            min_x, max_x = (min(lons) - center_lon) * zoom, (max(lons) - center_lon) * zoom
+            min_y, max_y = (min(lats) - center_lat) * zoom, (max(lats) - center_lat) * zoom
+            
+            s['x'] = (min_x + max_x) / 2
+            s['z'] = (min_y + max_y) / 2
+            s['w'] = max(0.1, max_x - min_x)
+            s['d'] = max(0.1, max_y - min_y)
+            del s['raw_coords'] # Free memory
 
     def show(self, filename="geomap3d.html"):
         self._project()
@@ -77,3 +84,4 @@ class Map:
         with open(filename, "w", encoding="utf-8") as f:
             f.write(html)
         webbrowser.open("file://" + os.path.abspath(filename))
+

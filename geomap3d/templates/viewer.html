@@ -75,6 +75,7 @@ const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 const tooltip = document.getElementById("tooltip");
 const instanceMeta = {};
+const pulseColor = new THREE.Color();
 
 let interactionMode = "hover";
 let isDragging = false;
@@ -160,63 +161,48 @@ data.shapes.forEach(s => {
 });
 
 /* ===================== TIME SWITCH ===================== */
-function showTime(t){
+// viewer.html optimized showTime function
+const colorTemp = new THREE.Color(); 
+
+function showTime(t) {
     pulseInstance = null;
     pulsePhase = 0;
     barMesh.userData = {};
-    group.children.forEach(o => { if(o !== barMesh) o.visible = false; });
-    timeBuckets.get(t)?.forEach(o => o.visible = true);
 
+    // 1. Handle Surfaces (Boundary lines)
+    timeBuckets.forEach((meshes, time) => {
+        const isVisible = (Number(time) === Number(t));
+        meshes.forEach(m => m.visible = isVisible);
+    });
+
+    // 2. Handle Instanced Bars
     const bars = barsByTime.get(t) || [];
     barMesh.count = bars.length;
 
-    bars.forEach((s, i) => {
-        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-        s.coords.forEach(([x, y]) => {
-            minX = Math.min(minX, x); maxX = Math.max(maxX, x);
-            minY = Math.min(minY, y); maxY = Math.max(maxY, y);
-        });
-
-        const width = Math.max(0.1, maxX - minX);
-        const depth = Math.max(0.1, maxY - minY);
-
-        dummy.position.set((minX + maxX) / 2, s.height / 2, (minY + maxY) / 2);
-        dummy.scale.set(width, s.height, depth); 
+    for (let i = 0; i < bars.length; i++) {
+        const s = bars[i];
+        
+        // Use pre-calculated Python transforms (x, z, w, d)
+        dummy.position.set(s.x, s.height / 2, s.z);
+        dummy.scale.set(s.w, s.height, s.d);
         dummy.updateMatrix();
-
         barMesh.setMatrixAt(i, dummy.matrix);
         
-        // Update the color buffer directly for maximum reliability
-        const c = new THREE.Color(s.color);
-        c.toArray(barMesh.instanceColor.array, i * 3);
+        // Apply Color
+        colorTemp.set(s.color);
+        colorTemp.toArray(barMesh.instanceColor.array, i * 3);
 
-        // barMesh.userData[i] = { height: s.height, info: s.info };
-        const center = new THREE.Vector3(
-            (minX + maxX) / 2,
-            s.height / 2,
-            (minY + maxY) / 2
-        );
-
-        // instanceMeta[i] = {
-        //     center,
-        //     height: s.height,
-        //     info: s.info
-        // };
-        instanceMeta[i] = {
-            center,
-            height: s.height,
-            info: s.info,
-            color: new THREE.Color(s.color)
+        // Store metadata for the Raycaster (Hover/Click)
+        barMesh.userData[i] = { 
+            info: s.info, 
+            color: colorTemp.clone(),
+            height: s.height 
         };
-        barMesh.userData[i] = instanceMeta[i];
-
-
-    });
+    }
 
     barMesh.instanceMatrix.needsUpdate = true;
     barMesh.instanceColor.needsUpdate = true;
 }
-
 function highlightInstance(id) {
     pulseInstance = id;
     pulsePhase = 0;
@@ -348,15 +334,15 @@ function resetView() {
 /* ===================== LOOP ===================== */
 function animate() {
     requestAnimationFrame(animate);
+    
     if (pulseInstance !== null && barMesh.userData[pulseInstance]) {
         pulsePhase += 0.08;
-
         const meta = barMesh.userData[pulseInstance];
         const glow = 1.2 + Math.sin(pulsePhase) * 0.6;
 
-        const c = meta.color.clone().multiplyScalar(glow);
-        c.toArray(barMesh.instanceColor.array, pulseInstance * 3);
-
+        // Reuse the object instead of .clone()
+        pulseColor.copy(meta.color).multiplyScalar(glow);
+        pulseColor.toArray(barMesh.instanceColor.array, pulseInstance * 3);
         barMesh.instanceColor.needsUpdate = true;
     }
 
