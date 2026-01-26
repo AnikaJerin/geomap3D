@@ -7,22 +7,23 @@
         #ui-layer { position: absolute; top: 10px; left: 10px; z-index: 10; background: rgba(0,0,0,0.8); padding: 15px; border: 1px solid #00ff88; width: 250px; }
         .slider { width: 100%; margin-top: 10px; accent-color: #00ff88; cursor: pointer; }
     </style>
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 </head>
+
+<body>
 <div id="tooltip" style="
     position: absolute;
     padding: 8px 12px;
     background: rgba(0,0,0,0.85);
     color: #00ff88;
-    font-family: monospace;
     font-size: 12px;
     border: 1px solid #00ff88;
     pointer-events: none;
     display: none;
-    z-index: 20;
-"></div>
-<!-- STORY PANEL -->
+    z-index: 20;"></div>
+
 <div id="story-panel" style="
     position: absolute;
     top: 10px;
@@ -32,370 +33,366 @@
     border: 1px solid #00ff88;
     padding: 15px;
     display: none;
-    z-index: 15;
-">
-</div>
+    z-index: 15;"></div>
 
-<body>
-    <div id="ui-layer">
-        <strong>TIMELINE CONTROL</strong><br>
-        HOUR: <span id="time-val">0</span>
-        <input type="range" min="0" value="0" step="1" id="timeSlider" class="slider">
-        <hr style="border-color:#00ff88; margin-top:12px">
-
+<div id="ui-layer">
+    <strong>TIMELINE CONTROL</strong><br>
+    HOUR: <span id="time-val">0</span>
+    <input type="range" min="0" value="0" step="1" id="timeSlider" class="slider">
+    <hr style="border-color:#00ff88; margin-top:12px">
     <strong>INTERACTION MODE</strong><br>
     <label><input type="radio" name="mode" value="hover" checked> Hover</label><br>
     <label><input type="radio" name="mode" value="click"> Click</label>
-    </div>
-    <script>
-        const data = {{ MAP_DATA }};
-        const timeSteps = data.timeSteps;
-        const scene = new THREE.Scene();
-        const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 1, 50000);
-        const renderer = new THREE.WebGLRenderer({ antialias: true });
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        document.body.appendChild(renderer.domElement);
-        const controls = new THREE.OrbitControls(camera, renderer.domElement);
-        camera.position.set(1200, 1200, 1200);
-        scene.add(new THREE.AmbientLight(0xffffff, 0.9));
-        const defaultCameraState = {
-            position: camera.position.clone(),
-            target: controls.target.clone()
+</div>
+
+<script>
+/* ===================== SETUP ===================== */
+const data = {{ MAP_DATA }};
+const timeSteps = data.timeSteps;
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth/window.innerHeight, 1, 50000);
+const renderer = new THREE.WebGLRenderer({ antialias:true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.outputEncoding = THREE.sRGBEncoding;
+renderer.physicallyCorrectLights = true;
+
+document.body.appendChild(renderer.domElement);
+
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+camera.position.set(1200,1200,1200);
+scene.add(new THREE.AmbientLight(0xffffff,0.9));
+const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.8);
+scene.add(hemiLight);
+dirLight.position.set(1, 2, 1);
+scene.add(dirLight);
+
+const group = new THREE.Group();
+scene.add(group);
+
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+const tooltip = document.getElementById("tooltip");
+const instanceMeta = {};
+
+let interactionMode = "hover";
+let isDragging = false;
+let needsRaycast = false;
+let lastHover = null;
+let pulseInstance = null;
+let pulsePhase = 0;
+
+
+/* ===================== CONTROLS ===================== */
+
+controls.addEventListener("end",()=>isDragging=false);
+
+window.addEventListener("mousemove", e=>{
+    mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+    mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+    needsRaycast = true;
+});
+/* ===================== INTERACTION MODE ===================== */
+document.querySelectorAll('input[name="mode"]').forEach(radio => {
+    radio.addEventListener("change", () => {
+        interactionMode = radio.value;
+
+        // reset UI on mode switch
+        tooltip.style.display = "none";
+        document.getElementById("story-panel").style.display = "none";
+    });
+});
+
+
+/* ===================== SURFACES ===================== */
+const timeBuckets = new Map();
+
+data.surfaces.forEach(s=>{
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute(
+        "position",
+        new THREE.BufferAttribute(new Float32Array(s.projected.flat()),3)
+    );
+
+    const mat = new THREE.LineBasicMaterial({
+        color: s.color,
+        transparent:true,
+        opacity:s.opacity
+    });
+
+    const mesh = new THREE.LineSegments(geo,mat);
+    mesh.rotation.x = -Math.PI/2;
+    mesh.visible = false;
+
+    if(!timeBuckets.has(s.time)) timeBuckets.set(s.time,[]);
+    timeBuckets.get(s.time).push(mesh);
+    group.add(mesh);
+});
+
+/* ===================== INSTANCED BARS ===================== */
+const barGeo = new THREE.BoxGeometry(1, 1, 1);
+const barMat = new THREE.MeshPhongMaterial({
+    // vertexColors: true
+    color: 0xffffff, 
+    vertexColors: false 
+});
+
+const barMesh = new THREE.InstancedMesh(
+    barGeo,
+    barMat,
+    data.shapes.length
+);
+
+// Manually create the attribute and attach it to the geometry for r128
+barMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(data.shapes.length * 3), 3);
+barMesh.geometry.setAttribute('instanceColor', barMesh.instanceColor);
+
+barMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+barMesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
+group.add(barMesh);
+
+const dummy = new THREE.Object3D();
+const barsByTime = new Map();
+data.shapes.forEach(s => {
+    if(!barsByTime.has(s.time)) barsByTime.set(s.time, []);
+    barsByTime.get(s.time).push(s);
+});
+
+/* ===================== TIME SWITCH ===================== */
+function showTime(t){
+    pulseInstance = null;
+    pulsePhase = 0;
+    barMesh.userData = {};
+    group.children.forEach(o => { if(o !== barMesh) o.visible = false; });
+    timeBuckets.get(t)?.forEach(o => o.visible = true);
+
+    const bars = barsByTime.get(t) || [];
+    barMesh.count = bars.length;
+
+    bars.forEach((s, i) => {
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        s.coords.forEach(([x, y]) => {
+            minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+            minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+        });
+
+        const width = Math.max(0.1, maxX - minX);
+        const depth = Math.max(0.1, maxY - minY);
+
+        dummy.position.set((minX + maxX) / 2, s.height / 2, (minY + maxY) / 2);
+        dummy.scale.set(width, s.height, depth); 
+        dummy.updateMatrix();
+
+        barMesh.setMatrixAt(i, dummy.matrix);
+        
+        // Update the color buffer directly for maximum reliability
+        const c = new THREE.Color(s.color);
+        c.toArray(barMesh.instanceColor.array, i * 3);
+
+        // barMesh.userData[i] = { height: s.height, info: s.info };
+        const center = new THREE.Vector3(
+            (minX + maxX) / 2,
+            s.height / 2,
+            (minY + maxY) / 2
+        );
+
+        // instanceMeta[i] = {
+        //     center,
+        //     height: s.height,
+        //     info: s.info
+        // };
+        instanceMeta[i] = {
+            center,
+            height: s.height,
+            info: s.info,
+            color: new THREE.Color(s.color)
         };
-        // ================= CAMERA DRAG TRACKING =================
-        let isDragging = false;
+        barMesh.userData[i] = instanceMeta[i];
 
-        controls.addEventListener("start", () => {
-            isDragging = true;
-        });
 
-        controls.addEventListener("end", () => {
-            isDragging = false;
+    });
 
-            // User finished dragging → accept this as new base camera
-            defaultCameraState.position.copy(camera.position);
-            defaultCameraState.target.copy(controls.target);
-        });
-        const group = new THREE.Group();
-        scene.add(group);
-        const raycaster = new THREE.Raycaster();
-        const mouse = new THREE.Vector2();
-        const tooltip = document.getElementById("tooltip");
-        let interactionMode = "hover";
-        let selectedObject = null;
+    barMesh.instanceMatrix.needsUpdate = true;
+    barMesh.instanceColor.needsUpdate = true;
+}
 
-        let focusedObject = null;
-        let isAnimatingCamera = false;
-        let animationProgress = 0;
-        let cameraFrom = {};
-        let cameraTo = {};
-        // let isDragging = false;    
+function highlightInstance(id) {
+    pulseInstance = id;
+    pulsePhase = 0;
 
-        window.addEventListener("mousemove", (event) => {
-            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-        });
-        document.querySelectorAll('input[name="mode"]').forEach(r => {
-            r.addEventListener("change", () => {
-                interactionMode = r.value;
-                tooltip.style.display = "none";
-                document.getElementById("story-panel").style.display = "none";
+    for (let i = 0; i < barMesh.count; i++) {
+        const base = barMesh.userData[i].color.clone();
 
-                group.children.forEach(o => {
-                    if (o.material) {
-                        o.material.transparent = false;
-                        o.material.opacity = 1;
-                    }
-                });
-            });
-        });
-        function buildScene(currentTime) {
-            group.clear();
-            // Surfaces (The Grid)
-            data.surfaces.forEach(surf => {
-                if (surf.time === currentTime) {
-                    const geo = new THREE.BufferGeometry();
-                    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(surf.projected.flat()), 3));
-                    // const mat = new THREE.MeshPhongMaterial({ color: surf.color, wireframe: true, transparent: true, opacity: surf.opacity, side: THREE.DoubleSide });
-                    // const mesh = new THREE.Mesh(geo, mat);
-                    const mat = new THREE.LineBasicMaterial({
-                    color: surf.color,
-                    transparent: true,
-                    opacity: surf.opacity
-                    });
-                    const mesh = new THREE.LineSegments(geo, mat);
-
-                    mesh.rotation.x = -Math.PI / 2;
-                    group.add(mesh);
-                }
-            });
-            // Shapes (The Bars)
-            data.shapes.forEach(s => {
-                if (s.time === currentTime) {
-                    const shape = new THREE.Shape(s.coords.map(c => new THREE.Vector2(c[0], c[1])));
-                    const geo = new THREE.ExtrudeGeometry(shape, { depth: s.height, bevelEnabled: false });
-                    const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: s.color }));
-                    mesh.userData = {
-                        height: s.height,
-                        info: s.info,
-                        time: s.time
-                    };
-                    mesh.rotation.x = -Math.PI / 2;
-                    group.add(mesh);
-                }
-            });
-        }
-        /* ================== STORY MODE ================== */
-
-        function focusOnObject(target) {
-            selectedObject = target;
-
-            group.children.forEach(obj => {
-                if (!obj.material) return;
-
-                if (obj === target) {
-                    obj.material.opacity = 1;
-                    obj.material.transparent = false;
-                } else {
-                    obj.material.transparent = true;
-                    obj.material.opacity = 0.08;
-                }
-            });
-
-            showStory(target.userData);
-            // moveCameraTo(target);
+        if (i === id) {
+            base.multiplyScalar(1.4); 
+        } else {
+            base.multiplyScalar(0.2); // dim others
         }
 
-        function showStory(data) {
-            const panel = document.getElementById("story-panel");
-            panel.style.display = "block";
+        base.toArray(barMesh.instanceColor.array, i * 3);
+    }
 
-            panel.innerHTML = `
-                <h3 style="color:#00ff88">${data.info?.city || "Selected Bar"}</h3>
-                <p><strong>Height:</strong> ${data.height}</p>
-                ${data.info
-                    ? Object.entries(data.info)
-                        .map(([k,v]) => `<p><strong>${k}</strong>: ${v}</p>`)
-                        .join("")
-                    : ""}
-            `;
-        }
-        function moveCameraTo(obj) {
-            const box = new THREE.Box3().setFromObject(obj);
-            const center = box.getCenter(new THREE.Vector3());
+    barMesh.instanceColor.needsUpdate = true;
+}
 
-            camera.position.copy(center.clone().add(new THREE.Vector3(200, 300, 200)));
-            controls.target.copy(center);
-            controls.update();
-        }
-        function animateCameraTo(targetPos, lookAt, duration = 60) {
-            isAnimatingCamera = true;
-            animationProgress = 0;
+/* ===================== GRID ===================== */
+const grid = new THREE.GridHelper(2000,40,0x00ff88,0x004433);
+grid.material.opacity=0.35;
+grid.material.transparent=true;
+grid.material.depthWrite=false;
+grid.position.y=-1;
+scene.add(grid);
 
-            cameraFrom = {
-                position: camera.position.clone(),
-                target: controls.target.clone()
-            };
+/* ===================== SLIDER ===================== */
+const slider = document.getElementById("timeSlider");
+slider.max = data.maxTimeIndex;
 
-            cameraTo = {
-                position: targetPos.clone(),
-                target: lookAt.clone()
-            };
+slider.oninput = ()=>{
+    const t = timeSteps[slider.value];
+    document.getElementById("time-val").innerText=t;
+    showTime(t);
+};
 
-            camera.userData.animDuration = duration;
-        }
-        function resetCamera() {
-            animateCameraTo(
-                defaultCameraState.position,
-                defaultCameraState.target
-            );
+showTime(timeSteps[0]);
 
-            focusedObject = null;
-            selectedObject = null;
+/* ===================== CAMERA FIX ===================== */
+function fitCamera(){
+    const box = new THREE.Box3().setFromObject(group);
+    if(box.isEmpty()) return;
 
-            document.getElementById("story-panel").style.display = "none";
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
 
-            // Restore all bars
-            group.children.forEach(obj => {
-                if (obj.material) {
-                    obj.material.transparent = false;
-                    obj.material.opacity = 1;
-                }
-            });
-        }
+    const maxDim = Math.max(size.x,size.y,size.z);
+    const fov = camera.fov * Math.PI/180;
+    const dist = maxDim / Math.sin(fov/2);
 
-        /* ================== CLICK ================== */
-        window.addEventListener("click", () => {
-            if (interactionMode !== "click") return;
-            if (isDragging) return;
-            raycaster.setFromCamera(mouse, camera);
-            const intersects = raycaster.intersectObjects(group.children);
+    camera.position.copy(center.clone().add(new THREE.Vector3(dist, dist*0.6, dist)));
+    controls.target.copy(center);
+    controls.update();
+}
 
-            // CLICK ON BAR
-            if (intersects.length > 0) {
-                const obj = intersects[0].object;
-                focusedObject = obj;
-                showStory(obj.userData);
+fitCamera();
 
-                const box = new THREE.Box3().setFromObject(obj);
-                const center = box.getCenter(new THREE.Vector3());
+/* ===================== PICKING ===================== */
+window.addEventListener("click", () => {
+    if (interactionMode !== "click" || isDragging) return;
 
-                const size = box.getSize(new THREE.Vector3());
-                const offset = Math.max(size.x, size.y, size.z) * 4;
+    raycaster.setFromCamera(mouse, camera);
+    // const hits = raycaster.intersectObject(barMesh);
+    const hits = raycaster.intersectObject(barMesh, false).filter(h => h.instanceId !== undefined);
+    if (hits.length) {
+    const instanceId = hits[0].instanceId;
+    const meta = barMesh.userData[instanceId];
 
-                const targetCameraPos = center.clone().add(
-                    new THREE.Vector3(offset, offset * 0.8, offset)
-                );
-
-                // animateCameraTo(targetCameraPos, center);
-                animateCameraTo(
-                    center.clone().add(new THREE.Vector3(offset, offset * 0.8, offset)),
-                    center
-                );
-
-                // Fade others
-                group.children.forEach(o => {
-                    if (o !== obj && o.material) {
-                        o.material.transparent = true;
-                        o.material.opacity = 0.15;
-                    }
-                });
-
-            } else {
-                // CLICK EMPTY SPACE
-                resetCamera();
-            }
-        });
-        // window.addEventListener("click", () => {
-        //     if (interactionMode !== "click") return;
-
-        //     raycaster.setFromCamera(mouse, camera);
-        //     const hits = raycaster.intersectObjects(group.children);
-
-        //     if (hits.length) {
-        //         focusOnObject(hits[0].object);
-        //     }
-        // });
-        function fitCameraToScene(camera, controls, object) {
-            const box = new THREE.Box3().setFromObject(object);
-            if (box.isEmpty()) return;
     
-            const size = box.getSize(new THREE.Vector3());
-            const center = box.getCenter(new THREE.Vector3());
-    
-            const maxDim = Math.max(size.x, size.y, size.z);
-            const fov = camera.fov * (Math.PI / 180);
-            let cameraZ = Math.abs(maxDim / Math.sin(fov / 2));
-    
-            camera.position.set(center.x, center.y + cameraZ * 0.3, cameraZ * 1.2);
-            camera.lookAt(center);
-    
-            camera.near = cameraZ / 100;
-            camera.far = cameraZ * 100;
-            camera.updateProjectionMatrix();
-    
-            if (controls) {
-                controls.target.copy(center);
-                controls.update();
+    function showStory(meta) {
+        const panel = document.getElementById("story-panel");
+        panel.style.display = "block";
+
+        let html = `<h3 style="color:#00ff88; margin-top:0;">
+            ${meta.info?.city || "Location Details"}
+        </h3>`;
+
+        for (const [k, v] of Object.entries(meta.info || {})) {
+            if (k !== "city") {
+                html += `<p style="margin:4px 0">
+                    <b>${k.toUpperCase()}:</b> ${v}
+                </p>`;
             }
         }
 
-        function addGroundGrid(scene, size = 2000, divisions = 40) {
-            const grid = new THREE.GridHelper(
-                size,
-                divisions,
-                0x00ff88,
-                0x004433
-            );
+        panel.innerHTML = html;
+    }
+    showStory(meta);
+    highlightInstance(instanceId);
+    } else {
+        resetView();
+    }
 
-            grid.material.opacity = 0.35;
-            grid.material.transparent = true;
-            grid.material.depthWrite = false;
-            grid.renderOrder = -1;
+    // if (hits.length) {
+    //     const instanceId = hits[0].instanceId;
+    //     const dataObj = barMesh.userData[instanceId];
+    //     const panel = document.getElementById("story-panel");
+        
+    //     panel.style.display = "block";
+        
+    //     // Dynamically build the info list from the Python 'info' dict
+    //     let infoHtml = `<h3 style="color:#00ff88; margin-top:0;">${dataObj.info?.city || "Location Details"}</h3>`;
+    //     for (const [key, value] of Object.entries(dataObj.info || {})) {
+    //         if (key !== "city") { // City is already the header
+    //             infoHtml += `<p style="margin: 5px 0;"><b>${key.toUpperCase()}:</b> ${value}</p>`;
+    //         }
+    //     }
+    //     panel.innerHTML = infoHtml;
+    // } else {
+    //     document.getElementById("story-panel").style.display = "none";
+    // }
+});
 
-            grid.position.y = -1; // slightly below bars
 
-            scene.add(grid);
-        }
+function resetView() {
+    pulseInstance = null;
 
-        const slider = document.getElementById('timeSlider');
-        slider.max = data.maxTimeIndex;
-        slider.oninput = () => {
-            const time = timeSteps[parseInt(slider.value)];
-            document.getElementById('time-val').innerText = time;
-            buildScene(time);
-        };
-        buildScene(timeSteps[0]);
-        addGroundGrid(scene);
-        fitCameraToScene(camera, controls, group);
-        function animate() {
-            requestAnimationFrame(animate);
+    for (let i = 0; i < barMesh.count; i++) {
+        const base = barMesh.userData[i].color.clone();
+        base.toArray(barMesh.instanceColor.array, i * 3);
+    }
 
-            raycaster.setFromCamera(mouse, camera);
-            const intersects = raycaster.intersectObjects(group.children);
+    barMesh.instanceColor.needsUpdate = true;
+    document.getElementById("story-panel").style.display = "none";
+}
 
-            if (intersects.length && interactionMode === "hover") {
-                const d = intersects[0].object.userData;
 
-                if (d && d.info) {
-                    tooltip.style.display = "block";
-                    tooltip.style.left = (mouse.x * window.innerWidth / 2 + window.innerWidth / 2) + "px";
-                    tooltip.style.top = (-mouse.y * window.innerHeight / 2 + window.innerHeight / 2) + "px";
+/* ===================== LOOP ===================== */
+function animate() {
+    requestAnimationFrame(animate);
+    if (pulseInstance !== null && barMesh.userData[pulseInstance]) {
+        pulsePhase += 0.08;
 
-                    tooltip.innerHTML = `
-                        <strong>${d.info.city || "Bar"}</strong><br>
-                        Height: ${d.height}<br>
-                        ${Object.entries(d.info)
-                            .filter(([k]) => k !== "city")
-                            .map(([k,v]) => `${k}: ${v}`)
-                            .join("<br>")}
-                    `;
-                }
-            } else {
-                tooltip.style.display = "none";
-            }
-            if (isAnimatingCamera) {
-                animationProgress++;
-                const t = Math.min(
-                    animationProgress / camera.userData.animDuration,
-                    1
-                );
+        const meta = barMesh.userData[pulseInstance];
+        const glow = 1.2 + Math.sin(pulsePhase) * 0.6;
 
-                camera.position.lerpVectors(
-                    cameraFrom.position,
-                    cameraTo.position,
-                    t
-                );
+        const c = meta.color.clone().multiplyScalar(glow);
+        c.toArray(barMesh.instanceColor.array, pulseInstance * 3);
 
-                controls.target.lerpVectors(
-                    cameraFrom.target,
-                    cameraTo.target,
-                    t
-                );
+        barMesh.instanceColor.needsUpdate = true;
+    }
 
-                controls.update();
+    if (needsRaycast && interactionMode === "hover") {
+        raycaster.setFromCamera(mouse, camera);
+        // const hits = raycaster.intersectObject(barMesh);
+        const hits = raycaster.intersectObject(barMesh, false).filter(h => h.instanceId !== undefined);
 
-                if (t === 1) {
-                    isAnimatingCamera = false;
-                    defaultCameraState.position.copy(camera.position);
-                    defaultCameraState.target.copy(controls.target);
+        if (hits.length) {
+            const instanceId = hits[0].instanceId;
+            const dataObj = barMesh.userData[instanceId];
+            
+            tooltip.style.display = "block";
+            // Offsetting the tooltip
+            tooltip.style.left = ((mouse.x + 1) / 2 * window.innerWidth) + 15 + "px";
+            tooltip.style.top = ((-mouse.y + 1) / 2 * window.innerHeight) + 15 + "px";
+            
+            let tooltipHtml = `<b style="color:#00ff88; font-size:14px;">${dataObj.info?.city || "Location"}</b><hr style="border:0; border-top:1px solid #00ff88; margin:4px 0;">`;
+            
+            for (const [key, value] of Object.entries(dataObj.info || {})) {
+                if (key !== "city") {
+                    tooltipHtml += `<div style="margin: 2px 0;"><b>${key.toUpperCase()}:</b> ${value}</div>`;
                 }
             }
-            renderer.render(scene, camera);
+            
+            tooltip.innerHTML = tooltipHtml;
+        } else {
+            tooltip.style.display = "none";
         }
+        needsRaycast = false;
+    }
 
-        function restoreAllBars() {
-            group.children.forEach(o => {
-                if (o.material) {
-                    o.material.transparent = false;
-                    o.material.opacity = 1;
-                }
-            });
-        }
+    renderer.render(scene, camera);
+}
 
-        // function animate() { requestAnimationFrame(animate); renderer.render(scene, camera); }
-        animate();
-    </script>        
-    
+animate();
+</script>
 </body>
 </html>
