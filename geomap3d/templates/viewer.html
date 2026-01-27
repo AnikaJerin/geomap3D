@@ -168,7 +168,6 @@ data.surfaces.forEach(s=>{
 /* ===================== INSTANCED BARS ===================== */
 const barGeo = new THREE.BoxGeometry(1, 1, 1);
 const barMat = new THREE.MeshPhongMaterial({
-    // vertexColors: true
     color: 0xffffff, 
     vertexColors: false 
 });
@@ -197,7 +196,7 @@ data.shapes.forEach(s => {
 // const bars = barsByTime.get(currentTime) || [];
 
 /* ===================== TIME SWITCH ===================== */
-// viewer.html optimized showTime function
+//  optimized showTime function
 const colorTemp = new THREE.Color(); 
 
 function showTime(t) {
@@ -242,15 +241,17 @@ function showTime(t) {
 function highlightInstance(id) {
     pulseInstance = id;
     pulsePhase = 0;
-    setExportEnabled(false);
 
     for (let i = 0; i < barMesh.count; i++) {
-        const base = barMesh.userData[i].color.clone();
+        const meta = barMesh.userData[i];
+        const base = meta.color.clone();
 
         if (i === id) {
-            base.multiplyScalar(1.4); 
+            // Keep the selected one bright
+            base.multiplyScalar(1.0); 
         } else {
-            base.multiplyScalar(0.2); // dim others
+            // Make all other bars dark/dimmed
+            base.multiplyScalar(0.15); 
         }
 
         base.toArray(barMesh.instanceColor.array, i * 3);
@@ -258,7 +259,6 @@ function highlightInstance(id) {
 
     barMesh.instanceColor.needsUpdate = true;
 }
-
 /* ===================== GRID ===================== */
 const grid = new THREE.GridHelper(2000,40,0x00ff88,0x004433);
 grid.material.opacity=0.35;
@@ -306,7 +306,7 @@ function fitCamera(){
 
 // *======= Export =======
 function exportPNG() {
-    renderer.render(scene, camera); // ensure latest frame
+    renderer.render(scene, camera); 
 
     const link = document.createElement("a");
     link.download = `geomap3D_${Date.now()}.png`;
@@ -326,7 +326,7 @@ function setExportEnabled(enabled) {
 window.addEventListener("click", (e) => {
     if (isDragging) return;
 
-    // ✅ UPDATE MOUSE POSITION ON CLICK
+    //  UPDATE MOUSE POSITION ON CLICK
     mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
     mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
 
@@ -343,7 +343,6 @@ window.addEventListener("click", (e) => {
         showStory(meta);
         highlightInstance(instanceId);
     } else {
-        // ✅ TRUE EMPTY CLICK
         resetView();
     }
 });
@@ -370,18 +369,17 @@ function showStory(meta) {
 function resetView() {
     pulseInstance = null;
 
-    // Reset all bar colors to their original state
+    // Restore all bars to their original full brightness
     for (let i = 0; i < barMesh.count; i++) {
-        const base = barMesh.userData[i].color.clone();
-        base.toArray(barMesh.instanceColor.array, i * 3);
+        const meta = barMesh.userData[i];
+        if (meta) {
+            meta.color.toArray(barMesh.instanceColor.array, i * 3);
+        }
     }
 
     barMesh.instanceColor.needsUpdate = true;
-    
-    // ADD THIS LINE: Hide the story panel
     document.getElementById("story-panel").style.display = "none";
 }
-
 
 /* ===================== LOOP ===================== */
 function animate() {
