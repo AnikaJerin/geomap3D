@@ -5,7 +5,22 @@
     <style>
         body { margin: 0; background: #050505; color: white; font-family: monospace; overflow: hidden; }
         #ui-layer { position: absolute; top: 10px; left: 10px; z-index: 10; background: rgba(0,0,0,0.8); padding: 15px; border: 1px solid #00ff88; width: 250px; }
-        .slider { width: 100%; margin-top: 10px; accent-color: #00ff88; cursor: pointer; }
+        .slider { width: 100%; margin-top: 10px; accent-color: #00ff88; cursor: pointer; } 
+        .export-btn {
+        width: 100%;
+        margin: 6px 0;
+        padding: 6px;
+        background: transparent;
+        border: 1px solid #00ff88;
+        color: #00ff88;
+        cursor: pointer;
+        font-family: monospace;
+        transition: all 0.2s ease;
+    }
+    .export-btn:hover {
+        background: #00ff88;
+        color: black;
+    }
     </style>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -44,6 +59,23 @@
     <label><input type="radio" name="mode" value="hover" checked> Hover</label><br>
     <label><input type="radio" name="mode" value="click"> Click</label>
 </div>
+<div id="export-panel" style="
+    position: absolute;
+    bottom: 20px;
+    left: 20px;
+    width: 220px;
+    background: rgba(0,0,0,0.9);
+    border: 1px solid #00ff88;
+    padding: 12px;
+    font-family: monospace;
+    z-index: 20;
+">
+    <strong style="color:#00ff88">EXPORT</strong>
+    <hr style="border-color:#00ff88; margin:8px 0">
+
+    <button class="export-btn" onclick="exportPNG()">📷 Image (PNG)</button>
+</div>
+
 
 <script>
 /* ===================== SETUP ===================== */
@@ -161,6 +193,8 @@ data.shapes.forEach(s => {
     if(!barsByTime.has(s.time)) barsByTime.set(s.time, []);
     barsByTime.get(s.time).push(s);
 });
+// const currentTime = timeSteps[slider.value];
+// const bars = barsByTime.get(currentTime) || [];
 
 /* ===================== TIME SWITCH ===================== */
 // viewer.html optimized showTime function
@@ -208,6 +242,7 @@ function showTime(t) {
 function highlightInstance(id) {
     pulseInstance = id;
     pulsePhase = 0;
+    setExportEnabled(false);
 
     for (let i = 0; i < barMesh.count; i++) {
         const base = barMesh.userData[i].color.clone();
@@ -245,8 +280,7 @@ slider.oninput = ()=>{
 showTime(timeSteps[0]);
 fitCamera();
 
-/* ===================== CAMERA FIX ===================== */
-/* ===================== CAMERA FIX ===================== */
+/* ===================== CAMERA ===================== */
 function fitCamera(){
     const box = new THREE.Box3().setFromObject(group);
     if(box.isEmpty()) return;
@@ -270,74 +304,81 @@ function fitCamera(){
     controls.update();
 }
 
+// *======= Export =======
+function exportPNG() {
+    renderer.render(scene, camera); // ensure latest frame
 
+    const link = document.createElement("a");
+    link.download = `geomap3D_${Date.now()}.png`;
+    link.href = renderer.domElement.toDataURL("image/png");
+    link.click();
+}
+function setExportEnabled(enabled) {
+    ["exportPNG", "exportCSV", "exportJSON"].forEach(id => {
+        const btn = document.getElementById(id);
+        btn.disabled = !enabled;
+        btn.style.opacity = enabled ? 1 : 0.4;
+        btn.style.cursor = enabled ? "pointer" : "not-allowed";
+    });
+}
 
 /* ===================== PICKING ===================== */
-window.addEventListener("click", () => {
-    if (interactionMode !== "click" || isDragging) return;
+window.addEventListener("click", (e) => {
+    if (isDragging) return;
+
+    // ✅ UPDATE MOUSE POSITION ON CLICK
+    mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+    mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
 
     raycaster.setFromCamera(mouse, camera);
-    // const hits = raycaster.intersectObject(barMesh);
-    const hits = raycaster.intersectObject(barMesh, false).filter(h => h.instanceId !== undefined);
-    if (hits.length) {
-    const instanceId = hits[0].instanceId;
-    const meta = barMesh.userData[instanceId];
 
-    
-    function showStory(meta) {
-        const panel = document.getElementById("story-panel");
-        panel.style.display = "block";
+    const hits = raycaster
+        .intersectObject(barMesh, false)
+        .filter(h => h.instanceId !== undefined);
 
-        let html = `<h3 style="color:#00ff88; margin-top:0;">
-            ${meta.info?.city || "Location Details"}
-        </h3>`;
+    if (hits.length && interactionMode === "click") {
+        const instanceId = hits[0].instanceId;
+        const meta = barMesh.userData[instanceId];
 
-        for (const [k, v] of Object.entries(meta.info || {})) {
-            if (k !== "city") {
-                html += `<p style="margin:4px 0">
-                    <b>${k.toUpperCase()}:</b> ${v}
-                </p>`;
-            }
-        }
-
-        panel.innerHTML = html;
-    }
-    showStory(meta);
-    highlightInstance(instanceId);
+        showStory(meta);
+        highlightInstance(instanceId);
     } else {
+        // ✅ TRUE EMPTY CLICK
         resetView();
     }
-
-    // if (hits.length) {
-    //     const instanceId = hits[0].instanceId;
-    //     const dataObj = barMesh.userData[instanceId];
-    //     const panel = document.getElementById("story-panel");
-        
-    //     panel.style.display = "block";
-        
-    //     // Dynamically build the info list from the Python 'info' dict
-    //     let infoHtml = `<h3 style="color:#00ff88; margin-top:0;">${dataObj.info?.city || "Location Details"}</h3>`;
-    //     for (const [key, value] of Object.entries(dataObj.info || {})) {
-    //         if (key !== "city") { // City is already the header
-    //             infoHtml += `<p style="margin: 5px 0;"><b>${key.toUpperCase()}:</b> ${value}</p>`;
-    //         }
-    //     }
-    //     panel.innerHTML = infoHtml;
-    // } else {
-    //     document.getElementById("story-panel").style.display = "none";
-    // }
 });
 
+function showStory(meta) {
+    const panel = document.getElementById("story-panel");
+    panel.style.display = "block";
+
+    let html = `<h3 style="color:#00ff88; margin-top:0;">
+        ${meta.info?.city || "Location Details"}
+    </h3>`;
+
+    for (const [k, v] of Object.entries(meta.info || {})) {
+        if (k !== "city") {
+            html += `<p style="margin:4px 0">
+                <b>${k.toUpperCase()}:</b> ${v}
+            </p>`;
+        }
+    }
+
+    panel.innerHTML = html;
+}
 
 function resetView() {
     pulseInstance = null;
 
+    // Reset all bar colors to their original state
     for (let i = 0; i < barMesh.count; i++) {
         const base = barMesh.userData[i].color.clone();
         base.toArray(barMesh.instanceColor.array, i * 3);
     }
 
     barMesh.instanceColor.needsUpdate = true;
+    
+    // ADD THIS LINE: Hide the story panel
     document.getElementById("story-panel").style.display = "none";
 }
 
